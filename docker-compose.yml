@@ -1,0 +1,36 @@
+services:
+  drone1:
+    build: .
+    container_name: px4-drone-1
+    environment:
+      - MAV_SYS_ID=1
+      - MAVSDK_REMOTE_PORT=14540
+      - PX4_HOME_LAT=51.2330
+      - PX4_HOME_LON=6.7833
+      - PX4_HOME_ALT=38.0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  drone2:
+    build: .
+    container_name: px4-drone-2
+    environment:
+      - MAV_SYS_ID=2
+      - MAVSDK_REMOTE_PORT=14541
+      - PX4_HOME_LAT=51.2335
+      - PX4_HOME_LON=6.7838
+      - PX4_HOME_ALT=38.0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  drone3:
+    build: .
+    container_name: px4-drone-3
+    environment:
+      - MAV_SYS_ID=3
+      - MAVSDK_REMOTE_PORT=14542
+      - PX4_HOME_LAT=51.2340
+      - PX4_HOME_LON=6.7843
+      - PX4_HOME_ALT=38.0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
