@@ -1,138 +1,42 @@
-# =============================================================================
-# docker-compose.yml - Multi-Drone PX4 SITL Orchestrierung
-# =============================================================================
-#
-# Diese Datei definiert drei simulierte Drohnen, die parallel laufen können.
-# Jede Drohne läuft in einem eigenen Container mit eigener MAV_SYS_ID und Port.
-#
-# Verwendung:
-#   docker-compose build              # Image bauen
-#   docker-compose up drone1          # Einzelne Drohne starten
-#   docker-compose up drone1 drone2   # Zwei Drohnen starten
-#   docker-compose up                 # Alle Drohnen starten
-#   docker-compose down               # Alle stoppen und aufräumen
-#
-# =============================================================================
-
 services:
-  # ---------------------------------------------------------------------------
-  # Drohne 1
-  # ---------------------------------------------------------------------------
-  # Erste Drohne mit Standard-Ports.
-  # MAVSDK-Server Befehl: ./mavsdk_server -p 50051 udp://:14540
   drone1:
-    # Baut das Image aus dem lokalen Dockerfile
     build: .
-    
-    # Container-Name für einfache Identifikation in Logs und docker ps
     container_name: px4-drone-1
-    
-    # Umgebungsvariablen für diese Drohne
+    tty: true
+    stdin_open: true
     environment:
-      # MAV_SYS_ID: Eindeutige MAVLink System-ID
-      # KRITISCH: Muss für jede Drohne unterschiedlich sein!
-      # Bei echten Drohnen: In QGroundControl unter Parameters setzen
       - MAV_SYS_ID=1
-      
-      # MAVSDK_REMOTE_PORT: UDP-Port für ausgehende MAVLink-Pakete
-      # Der MAVSDK-Server auf dem Host lauscht auf diesem Port
-      # Formel: 14540 + (Drohnen-Nummer - 1)
       - MAVSDK_REMOTE_PORT=14540
-      
-      # PX4_HOME_*: Simulierte GPS-Startposition
-      # Drohnen sollten leicht versetzt starten um Kollisionen zu vermeiden
-      # Diese Koordinaten sind in der Nähe von Düsseldorf
       - PX4_HOME_LAT=51.2330
       - PX4_HOME_LON=6.7833
       - PX4_HOME_ALT=38.0
-    
-    # Host-Auflösung für Docker Desktop (Mac/Windows)
-    # Ermöglicht dem Container, den Host über "host.docker.internal" zu erreichen
-    # Auf Linux wird dies durch "host-gateway" auf die Docker-Bridge-IP gemappt
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  # ---------------------------------------------------------------------------
-  # Drohne 2
-  # ---------------------------------------------------------------------------
-  # Zweite Drohne mit versetzten Ports und Position.
-  # MAVSDK-Server Befehl: ./mavsdk_server -p 50052 udp://:14541
   drone2:
     build: .
     container_name: px4-drone-2
+    tty: true
+    stdin_open: true
     environment:
-      # Andere MAV_SYS_ID als Drohne 1!
       - MAV_SYS_ID=2
-      
-      # Anderer Port als Drohne 1!
       - MAVSDK_REMOTE_PORT=14541
-      
-      # Leicht versetzte Position (ca. 50m nordöstlich von Drohne 1)
       - PX4_HOME_LAT=51.2335
       - PX4_HOME_LON=6.7838
       - PX4_HOME_ALT=38.0
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  # ---------------------------------------------------------------------------
-  # Drohne 3
-  # ---------------------------------------------------------------------------
-  # Dritte Drohne mit weiteren versetzten Ports und Position.
-  # MAVSDK-Server Befehl: ./mavsdk_server -p 50053 udp://:14542
   drone3:
     build: .
     container_name: px4-drone-3
+    tty: true
+    stdin_open: true
     environment:
-      # Wieder andere MAV_SYS_ID!
       - MAV_SYS_ID=3
-      
-      # Wieder anderer Port!
       - MAVSDK_REMOTE_PORT=14542
-      
-      # Noch weiter versetzt (ca. 100m nordöstlich von Drohne 1)
       - PX4_HOME_LAT=51.2340
       - PX4_HOME_LON=6.7843
       - PX4_HOME_ALT=38.0
     extra_hosts:
       - "host.docker.internal:host-gateway"
-
-# =============================================================================
-# Hinweise zur Erweiterung
-# =============================================================================
-#
-# Weitere Drohnen hinzufügen:
-# --------------------------
-# Kopiere einen der obigen Service-Blöcke und ändere:
-#   1. Service-Name (z.B. drone4)
-#   2. container_name (z.B. px4-drone-4)
-#   3. MAV_SYS_ID (z.B. 4)
-#   4. MAVSDK_REMOTE_PORT (z.B. 14543)
-#   5. PX4_HOME_LAT/LON (leicht versetzt)
-#
-# Port-Schema:
-# -----------
-#   Drohne N:
-#     MAV_SYS_ID = N
-#     MAVSDK_REMOTE_PORT = 14539 + N
-#     MAVSDK gRPC Port = 50050 + N
-#
-# Ressourcen-Verbrauch:
-# --------------------
-# Jede Drohne benötigt ca.:
-#   - 2-4 GB RAM
-#   - 1-2 CPU Cores
-# Bei vielen Drohnen kann das System langsam werden!
-#
-# Alternative Fahrzeuge/Welten:
-# ----------------------------
-# Standardmäßig wird "iris" (Quadcopter) in "empty" (leere Welt) gestartet.
-# Für andere Konfigurationen, füge command: hinzu:
-#
-#   drone1:
-#     ...
-#     command: ["-v", "typhoon_h480", "-w", "baylands"]
-#
-# Verfügbare Fahrzeuge: iris, typhoon_h480, plane, rover, boat, etc.
-# Verfügbare Welten: empty, baylands, mcmillan_airfield, etc.
-#
-# =============================================================================
