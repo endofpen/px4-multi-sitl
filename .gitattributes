@@ -1,3 +1,2 @@
-# .gitattributes
+# Shell-Scripts immer mit LF (Unix) Zeilenenden
 *.sh text eol=lf
-entrypoint.sh text eol=lf
