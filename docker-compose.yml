@@ -1,18 +1,56 @@
+# =============================================================================
+# docker-compose.yml - Multi-Drone PX4 SITL Orchestrierung
+# =============================================================================
+#
+# Verwendung:
+#   docker-compose build              # Image bauen (dauert ~30-60 Min beim ersten Mal!)
+#   docker-compose up drone1          # Einzelne Drohne starten
+#   docker-compose up drone1 drone2   # Zwei Drohnen starten
+#   docker-compose up                 # Alle Drohnen starten
+#   docker-compose down               # Alle stoppen
+#
+# MAVSDK-Server starten (auf dem Host):
+#   ./mavsdk_server -p 50051 udp://:14540   # Drohne 1
+#   ./mavsdk_server -p 50052 udp://:14541   # Drohne 2
+#   ./mavsdk_server -p 50053 udp://:14542   # Drohne 3
+#
+# =============================================================================
+
 services:
+  # ---------------------------------------------------------------------------
+  # Drohne 1
+  # ---------------------------------------------------------------------------
   drone1:
     build: .
     container_name: px4-drone-1
     tty: true
     stdin_open: true
     environment:
-      - MAV_SYS_ID=1
-      - MAVSDK_REMOTE_PORT=14540
-      - PX4_HOME_LAT=51.2330
-      - PX4_HOME_LON=6.7833
-      - PX4_HOME_ALT=38.0
+      # --- Pflicht-Parameter ---
+      - MAV_SYS_ID=1                    # Eindeutige MAVLink System ID (1-255)
+      - API_PORT=14540                  # UDP Port für MAVSDK
+
+      # --- Optionale Parameter ---
+      - GCS_PORT=14550                  # UDP Port für QGroundControl
+      - SIM_SPEED=1                     # Simulationsgeschwindigkeit (1=Echtzeit, 2=doppelt, etc.)
+      - VEHICLE=iris                    # Fahrzeugtyp (iris, typhoon_h480, plane, rover, etc.)
+      - WORLD=empty                     # Gazebo-Welt (empty, baylands, mcmillan_airfield, etc.)
+
+      # --- Startposition ---
+      - PX4_HOME_LAT=51.2330            # Breitengrad
+      - PX4_HOME_LON=6.7833             # Längengrad
+      - PX4_HOME_ALT=38.0               # Höhe über Meeresspiegel (m)
+
+      # --- Erweiterte Parameter (optional) ---
+      # Kommaseparierte Liste von PX4-Parametern
+      # - PX4_PARAMS=MPC_XY_CRUISE 20,MIS_DIST_1WP 3000,MPC_XY_VEL_MAX 20
+
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  # ---------------------------------------------------------------------------
+  # Drohne 2
+  # ---------------------------------------------------------------------------
   drone2:
     build: .
     container_name: px4-drone-2
@@ -20,13 +58,20 @@ services:
     stdin_open: true
     environment:
       - MAV_SYS_ID=2
-      - MAVSDK_REMOTE_PORT=14541
-      - PX4_HOME_LAT=51.2335
+      - API_PORT=14541
+      - GCS_PORT=14551
+      - SIM_SPEED=1
+      - VEHICLE=iris
+      - WORLD=empty
+      - PX4_HOME_LAT=51.2335            # Leicht versetzt (~50m)
       - PX4_HOME_LON=6.7838
       - PX4_HOME_ALT=38.0
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  # ---------------------------------------------------------------------------
+  # Drohne 3
+  # ---------------------------------------------------------------------------
   drone3:
     build: .
     container_name: px4-drone-3
@@ -34,8 +79,12 @@ services:
     stdin_open: true
     environment:
       - MAV_SYS_ID=3
-      - MAVSDK_REMOTE_PORT=14542
-      - PX4_HOME_LAT=51.2340
+      - API_PORT=14542
+      - GCS_PORT=14552
+      - SIM_SPEED=1
+      - VEHICLE=iris
+      - WORLD=empty
+      - PX4_HOME_LAT=51.2340            # Noch weiter versetzt (~100m)
       - PX4_HOME_LON=6.7843
       - PX4_HOME_ALT=38.0
     extra_hosts:

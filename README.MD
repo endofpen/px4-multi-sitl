@@ -1,259 +1,259 @@
-# PX4 Multi-Drone SITL Simulation
+# PX4 Multi-Drone SITL Simulation - Projekt-Dokumentation
 
-Dieses Setup ermöglicht die gleichzeitige Simulation mehrerer PX4-Drohnen in Docker-Containern,
-die über MAVSDK-Server mit einer Kotlin-Anwendung kommunizieren.
+## Projektübersicht
+
+### Ziel
+Entwicklung eines Docker-basierten Multi-Drone Simulationssystems für PX4 SITL (Software In The Loop), das mehrere simulierte Drohnen gleichzeitig in separaten Containern ausführen kann. Diese Drohnen werden über MAVSDK mit einer Kotlin-Anwendung gesteuert.
+
+### Motivation
+- Entwicklung und Test einer Multi-Drone Steuerungsanwendung in Kotlin
+- Simulation mehrerer Drohnen ohne physische Hardware
+- Vorbereitung für späteren Einsatz mit echten Drohnen
+- Reproduzierbare Testumgebung für Drohnen-Schwarm-Szenarien
+
+### Anwendungsfall
+Eine Kotlin-Anwendung steuert mehrere Drohnen über MAVSDK-Java. Jede Drohne läuft in einem eigenen Docker-Container mit PX4 SITL und Gazebo (headless). Die Kommunikation erfolgt über MAVLink UDP.
+
+---
 
 ## Architektur
-
 ```
-┌──────────────────────────────────────────────────────────────────────────────────────┐
-│                              HOST SYSTEM (Mac/Linux/Windows)                         │
-│                                                                                      │
-│  ┌──────────────────────────────────────────────────────────────────────────────┐    │
-│  │                           Docker Environment                                 │    │
-│  │                                                                              │    │
-│  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐            │    │
-│  │  │  px4-drone-1     │  │  px4-drone-2     │  │  px4-drone-3     │            │    │
-│  │  │  ──────────────  │  │  ──────────────  │  │  ──────────────  │            │    │
-│  │  │  MAV_SYS_ID: 1   │  │  MAV_SYS_ID: 2   │  │  MAV_SYS_ID: 3   │            │    │
-│  │  │  UDP → 14540     │  │  UDP → 14541     │  │  UDP → 14542     │            │    │
-│  │  │  PX4 + Gazebo    │  │  PX4 + Gazebo    │  │  PX4 + Gazebo    │            │    │
-│  │  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘            │    │
-│  │           │                     │                     │                      │    │
-│  └───────────┼─────────────────────┼─────────────────────┼──────────────────────┘    │
-│              │ UDP                 │ UDP                 │ UDP                       │
-│              │ MAVLink             │ MAVLink             │ MAVLink                   │
-│              ▼                     ▼                     ▼                           │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐                    │
-│  │  MAVSDK-Server   │  │  MAVSDK-Server   │  │  MAVSDK-Server   │                    │
-│  │  ──────────────  │  │  ──────────────  │  │  ──────────────  │                    │
-│  │  UDP: 14540      │  │  UDP: 14541      │  │  UDP: 14542      │                    │
-│  │  gRPC: 50051     │  │  gRPC: 50052     │  │  gRPC: 50053     │                    │
-│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘                    │
-│           │ gRPC                │ gRPC                │ gRPC                         │
-│           └─────────────────────┼─────────────────────┘                              │
-│                                 ▼                                                    │
-│                    ┌─────────────────────────┐                                       │
-│                    │    Kotlin Application   │                                       │
-│                    │    ─────────────────    │                                       │
-│                    │    MAVSDK-Java Client   │                                       │
-│                    │    Drone Control Logic  │                                       │
-│                    └─────────────────────────┘                                       │
-│                                                                                      │
-└──────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              HOST SYSTEM                                     │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐  │
+│  │                         Docker Environment                             │  │
+│  │                                                                        │  │
+│  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐      │  │
+│  │  │  px4-drone-1     │  │  px4-drone-2     │  │  px4-drone-3     │      │  │
+│  │  │  MAV_SYS_ID: 1   │  │  MAV_SYS_ID: 2   │  │  MAV_SYS_ID: 3   │      │  │
+│  │  │  API: 14540      │  │  API: 14541      │  │  API: 14542      │      │  │
+│  │  │  PX4 + Gazebo    │  │  PX4 + Gazebo    │  │  PX4 + Gazebo    │      │  │
+│  │  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘      │  │
+│  └───────────┼─────────────────────┼─────────────────────┼────────────────┘  │
+│              │ UDP MAVLink         │ UDP MAVLink         │ UDP MAVLink       │
+│              ▼                     ▼                     ▼                   │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐            │
+│  │  MAVSDK-Server   │  │  MAVSDK-Server   │  │  MAVSDK-Server   │            │
+│  │  UDP: 14540      │  │  UDP: 14541      │  │  UDP: 14542      │            │
+│  │  gRPC: 50051     │  │  gRPC: 50052     │  │  gRPC: 50053     │            │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘            │
+│           └─────────────────────┼─────────────────────┘                      │
+│                                 ▼                                            │
+│                    ┌─────────────────────────┐                               │
+│                    │    Kotlin Application   │                               │
+│                    │    MAVSDK-Java Client   │                               │
+│                    └─────────────────────────┘                               │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## Datenfluss
+---
 
-1. **PX4 SITL** (im Docker-Container) simuliert die Drohnen-Firmware und Sensoren
-2. **Gazebo** (headless) simuliert die Physik und Umgebung
-3. **MAVLink UDP** transportiert Telemetrie und Kommandos vom Container zum Host
-4. **MAVSDK-Server** übersetzt MAVLink ↔ gRPC
-5. **Kotlin-Anwendung** steuert die Drohnen über MAVSDK-Java
+## Technische Entscheidungen
 
-## Dateien
+### Warum eigenes Docker-Image statt Jonas-Image?
 
+| Aspekt | Jonas-Image | Eigenes Image (andrekuros-basiert) |
+|--------|-------------|-----------------------------------|
+| Multi-Drone Support | Eingeschränkt | Vollständig |
+| MAV_SYS_ID | Nicht konfigurierbar | Per Umgebungsvariable |
+| API/GCS Ports | Fest (14540/14550) | Frei konfigurierbar |
+| Sim-Speed | Nicht änderbar | Einstellbar |
+| Custom PX4 Params | Nicht möglich | Zur Laufzeit setzbar |
+| MAV_PROTO_VER | Nicht gesetzt | Automatisch auf 2 |
+
+### Kritische Konfigurationen
+
+1. **MAV_PROTO_VER 2** - Erzwingt MAVLink 2 Protokoll, verhindert Paketverluste
+2. **MAV_SYS_ID** - Muss für jede Drohne eindeutig sein (1-255)
+3. **Separate Ports** - Jede Drohne braucht eigenen API_PORT
+4. **host.docker.internal** - Ermöglicht Kommunikation Container → Host
+
+---
+
+## Gelöste Probleme
+
+### 1. CRLF vs. LF Zeilenenden (Windows)
+**Problem:** Shell-Scripts mit Windows-Zeilenenden (CRLF) funktionieren nicht in Linux-Containern.
+**Lösung:** `.gitattributes` Datei mit `*.sh text eol=lf`
+
+### 2. IPv6 statt IPv4
+**Problem:** `getent hosts` gibt IPv6 zurück, PX4 versteht nur IPv4.
+**Lösung:** `getent ahostsv4` für explizite IPv4-Auflösung
+
+### 3. empy Version Inkompatibilität
+**Problem:** `empy` 4.x entfernte `RAW_OPT` Attribut, PX4 braucht es.
+**Lösung:** `pip3 install empy==3.3.4`
+
+### 4. MAVLink Paketverluste
+**Problem:** `vehicle_command_ack lost` Fehler, instabile Kommunikation.
+**Lösung:** `MAV_PROTO_VER 2` setzen + korrekte MAVLink-Konfiguration wie bei andrekuros
+
+### 5. Commands werden ignoriert
+**Problem:** Drohne reagiert langsam oder gar nicht auf Befehle.
+**Lösung:** Vollständige MAVLink-Konfiguration mit `-t <IP>` und `-o <PORT>` für beide Links (GCS + API)
+
+---
+
+## Dateien im Projekt
 ```
 px4-multi-sitl/
-├── README.md           # Diese Dokumentation
-├── Dockerfile          # Docker-Image Definition
-├── entrypoint.sh       # Container-Startskript
-└── docker-compose.yml  # Multi-Container Orchestrierung
+├── Dockerfile           # Ubuntu 18.04 + PX4 Build
+├── docker-compose.yml   # Multi-Container Orchestrierung
+├── entrypoint.sh        # Startskript mit Umgebungsvariablen
+├── edit_rcS.bash        # MAVLink-Konfiguration
+├── .gitattributes       # LF-Zeilenenden für Windows
+├── README.md            # Benutzer-Dokumentation
+└── sitl_rtsp_proxy/     # Video-Streaming (optional)
+    ├── CMakeLists.txt
+    └── main.cpp
 ```
 
-## Voraussetzungen
+---
 
-- Docker Desktop (Mac/Windows) oder Docker Engine (Linux)
-- docker-compose
-- MAVSDK-Server Binary (passend zum Betriebssystem)
-- Ca. 4 GB RAM pro Drohne
+## Konfigurierbare Umgebungsvariablen
 
-## Quick Start
+| Variable | Beschreibung | Default | Beispiel |
+|----------|--------------|---------|----------|
+| `MAV_SYS_ID` | MAVLink System ID (1-255) | `1` | `2` |
+| `API_PORT` | UDP Port für MAVSDK | `14540` | `14541` |
+| `GCS_PORT` | UDP Port für QGroundControl | `14550` | `14551` |
+| `SIM_SPEED` | Simulationsgeschwindigkeit | `1` | `2` |
+| `VEHICLE` | Fahrzeugtyp | `iris` | `typhoon_h480` |
+| `WORLD` | Gazebo-Welt | `empty` | `baylands` |
+| `PX4_HOME_LAT` | Startposition Breitengrad | `51.2330` | - |
+| `PX4_HOME_LON` | Startposition Längengrad | `6.7833` | - |
+| `PX4_HOME_ALT` | Startposition Höhe (m) | `38.0` | - |
+| `PX4_PARAMS` | Zusätzliche PX4-Parameter | `""` | `MPC_XY_CRUISE 20,MIS_DIST_1WP 3000` |
 
-### 1. Image bauen
+---
 
+## Port-Schema
+
+| Drohne | MAV_SYS_ID | API_PORT | GCS_PORT | MAVSDK gRPC |
+|--------|------------|----------|----------|-------------|
+| 1 | 1 | 14540 | 14550 | 50051 |
+| 2 | 2 | 14541 | 14551 | 50052 |
+| 3 | 3 | 14542 | 14552 | 50053 |
+| N | N | 14539+N | 14549+N | 50050+N |
+
+---
+
+## Verwendung
+
+### Image bauen (einmalig, ~30-60 Min)
 ```bash
-cd px4-multi-sitl
 docker-compose build
 ```
 
-### 2. Drohnen starten
-
+### Drohnen starten
 ```bash
 # Einzelne Drohne
 docker-compose up drone1
 
-# Mehrere Drohnen (separate Terminals)
-docker-compose up drone1
-docker-compose up drone2
-docker-compose up drone3
-
-# Alle Drohnen gleichzeitig
-docker-compose up
+# Mehrere Drohnen
+docker-compose up drone1 drone2 drone3
 ```
 
-### 3. MAVSDK-Server starten
-
-Für jede Drohne einen separaten MAVSDK-Server in einem eigenen Terminal:
-
+### MAVSDK-Server starten (auf Host)
 ```bash
-# Drohne 1
-./mavsdk_server -p 50051 udp://:14540
-
-# Drohne 2
-./mavsdk_server -p 50052 udp://:14541
-
-# Drohne 3
-./mavsdk_server -p 50053 udp://:14542
+./mavsdk_server -p 50051 udp://:14540  # Drohne 1
+./mavsdk_server -p 50052 udp://:14541  # Drohne 2
+./mavsdk_server -p 50053 udp://:14542  # Drohne 3
 ```
 
-### 4. Verbindung prüfen
-
-Bei erfolgreicher Verbindung zeigt der MAVSDK-Server:
-
-```
-[Info ] New system on: 127.0.0.1:xxxxx (with sysid: 1)
-[Info ] System discovered
-[Info ] Server set to listen on 0.0.0.0:50051
+### Kotlin-Verbindung
+```kotlin
+val drone1 = System("localhost", 50051)
+val drone2 = System("localhost", 50052)
+val drone3 = System("localhost", 50053)
 ```
 
-**Wichtig:** Die `sysid` muss der `MAV_SYS_ID` der jeweiligen Drohne entsprechen!
+---
 
-## Konfiguration
+## Quellen und Referenzen
 
-### Drohnen-Parameter (docker-compose.yml)
+### Haupt-Repositories
 
-| Parameter | Beschreibung | Beispiel |
-|-----------|--------------|----------|
-| `MAV_SYS_ID` | Eindeutige MAVLink System-ID (1-255) | `1`, `2`, `3` |
-| `MAVSDK_REMOTE_PORT` | UDP-Port für ausgehende MAVLink-Pakete | `14540`, `14541`, `14542` |
-| `PX4_HOME_LAT` | Startposition Breitengrad | `51.2330` |
-| `PX4_HOME_LON` | Startposition Längengrad | `6.7833` |
-| `PX4_HOME_ALT` | Startposition Höhe (Meter über Meeresspiegel) | `38.0` |
+1. **andrekuros/px4-sitl-headless-flex** (Hauptbasis für unser Setup)
+    - GitHub: https://github.com/andrekuros/px4-sitl-headless-flex
+    - DockerHub: https://hub.docker.com/r/andrekuros/px4-sitl-headless-flex
+    - Features: Multi-Drone, konfigurierbare Ports, SIM_SPEED, PX4_PARAMS
 
-### Port-Schema
+2. **JonasVautherin/px4-gazebo-headless** (Original-Inspiration)
+    - GitHub: https://github.com/JonasVautherin/px4-gazebo-headless
+    - DockerHub: https://hub.docker.com/r/jonasvautherin/px4-gazebo-headless
+    - Verwendet für: Grundstruktur, RTSP Proxy, edit_rcS.bash Konzept
 
-| Drohne | MAV_SYS_ID | MAVLink UDP | MAVSDK gRPC |
-|--------|------------|-------------|-------------|
-| 1 | 1 | 14540 | 50051 |
-| 2 | 2 | 14541 | 50052 |
-| 3 | 3 | 14542 | 50053 |
-| n | n | 14539+n | 50050+n |
+3. **PX4/PX4-Autopilot** (Firmware)
+    - GitHub: https://github.com/PX4/PX4-Autopilot
+    - Version: v1.14.3
+    - Dokumentation: https://docs.px4.io/
 
+### Dokumentation
 
-## Troubleshooting
+4. **PX4 Gazebo Classic Simulation**
+    - https://docs.px4.io/main/en/sim_gazebo_classic/
 
-### Problem: "MAVLink only on localhost"
+5. **MAVSDK**
+    - https://mavsdk.mavlink.io/
+    - MAVSDK-Java für Kotlin-Integration
 
-**Ursache:** Die MAVLink-Konfiguration sendet nicht an den Host.
+6. **MAVLink Protokoll**
+    - https://mavlink.io/
 
-**Lösung:** Das `entrypoint.sh` muss die `-t <HOST_IP>` Parameter korrekt setzen.
-Prüfe die Logs auf:
-```
-Verifying MAVLink configuration...
-mavlink start ... -t 192.168.65.254
-```
+### Problem-Lösungen
 
-### Problem: "Address already in use"
+7. **IPv6 Problem in Docker**
+    - GitHub Issue: https://github.com/JonasVautherin/px4-gazebo-headless/issues/34
+    - Lösung: `getent ahostsv4` statt `getent hosts`
 
-**Ursache:** Mehrere Drohnen versuchen denselben Port zu nutzen.
+8. **empy Kompatibilität**
+    - Problem: `AttributeError: module 'em' has no attribute 'RAW_OPT'`
+    - Lösung: `empy==3.3.4` pinnen
 
-**Lösung:** Jede Drohne braucht einen eindeutigen `MAVSDK_REMOTE_PORT`.
+9. **Multi-Vehicle Simulation**
+    - PX4 Docs: https://docs.px4.io/main/en/simulation/multi-vehicle-simulation.html
 
-### Problem: "sysid: 1" bei allen Drohnen
+---
 
-**Ursache:** `MAV_SYS_ID` wird nicht korrekt gesetzt.
+## Entwicklungsumgebung
 
-**Lösung:** Prüfe die Logs auf:
-```
-* MAV_SYS_ID: curr: 1 -> new: 2
-```
+- **Host OS:** Windows mit Docker Desktop
+- **IDE:** IntelliJ IDEA (für Kotlin)
+- **Container OS:** Ubuntu 18.04
+- **PX4 Version:** v1.14.3
+- **Gazebo Version:** 9
+- **MAVSDK Version:** Aktuell (für mavsdk_server)
 
-### Problem: IPv6-Fehler
+---
 
-**Symptom:** `ERROR [mavlink] invalid partner ip '::ffff:...'`
+## Bekannte Einschränkungen
 
-**Ursache:** `getent hosts` gibt IPv6 statt IPv4 zurück.
+1. **Build-Zeit:** Erster Build dauert 30-60 Minuten (PX4 Kompilierung)
+2. **Ressourcen:** Jede Drohne benötigt ~2-4 GB RAM, 1-2 CPU Cores
+3. **Windows:** Shell-Scripts müssen LF-Zeilenenden haben
+4. **Simulation:** Hohe SIM_SPEED Werte können instabil sein
 
-**Lösung:** Das `entrypoint.sh` verwendet `getent ahostsv4` für explizite IPv4-Auflösung.
+---
 
-## Real-World Umstellung
+## Nächste Schritte / TODO
 
-Dieses Setup ist für den späteren Einsatz mit echten Drohnen vorbereitet.
+- [ ] Kotlin-Anwendung mit Multi-Drone Steuerung entwickeln
+- [ ] Tests mit 3+ gleichzeitigen Drohnen
+- [ ] Performance-Optimierung
+- [ ] Übergang zu echten Drohnen vorbereiten
+- [ ] CI/CD Pipeline für automatische Tests
 
-### Was sich ändert
+---
 
-| Aspekt | Simulation | Real-World |
-|--------|------------|------------|
-| PX4 | Docker-Container | Drohnen-Hardware |
-| MAV_SYS_ID | Umgebungsvariable | QGroundControl Parameter |
-| Kommunikation | Docker → Host | WiFi / Telemetrie |
-| Connection String | `udp://:14540` | `udp://:14540` oder `serial:///dev/ttyUSB0:57600` |
+## Kontakt / Kontext
 
-### Was gleich bleibt
-
-- ✅ MAVSDK-Server Architektur
-- ✅ gRPC API
-- ✅ Kotlin-Anwendungscode
-- ✅ MAV_SYS_ID Konzept
-
-### Typische Real-World Connection Strings
-
-```bash
-# WiFi (Drohne sendet aktiv)
-./mavsdk_server -p 50051 udp://:14540
-
-# WiFi (GCS verbindet aktiv)
-./mavsdk_server -p 50051 udp://192.168.1.100:14540
-
-# Telemetrie-Modul (SiK Radio, 3DR)
-./mavsdk_server -p 50051 serial:///dev/ttyUSB0:57600
-
-# USB-Direktverbindung
-./mavsdk_server -p 50051 serial:///dev/tty.usbmodem1:115200
-```
-
-### Checkliste für Real-World
-
-1. [ ] MAV_SYS_ID auf jeder Drohne konfigurieren (QGroundControl → Parameters)
-2. [ ] Netzwerk-Topologie planen (WiFi AP vs. gemeinsames Netzwerk)
-3. [ ] Connection Strings in Kotlin-Config anpassen
-4. [ ] Firewall-Regeln prüfen (UDP-Ports öffnen)
-5. [ ] Latenz und Zuverlässigkeit testen
-
-## Logs und Debugging
-
-### Container-Logs anzeigen
-
-```bash
-docker-compose logs drone1
-docker-compose logs -f drone1  # Live-Follow
-```
-
-### In Container einsteigen
-
-```bash
-docker exec -it px4-drone-1 /bin/bash
-```
-
-### MAVLink-Traffic analysieren
-
-```bash
-# Auf dem Host
-sudo tcpdump -i any udp port 14540
-
-# Oder mit Wireshark
-# Filter: udp.port == 14540
-```
-
-## Referenzen
-
-- [PX4 Autopilot](https://px4.io/)
-- [MAVSDK](https://mavsdk.mavlink.io/)
-- [jonasvautherin/px4-gazebo-headless](https://github.com/JonasVautherin/px4-gazebo-headless)
-- [MAVLink Protocol](https://mavlink.io/)
+- **Entwickler:** Flo (Freelancer, Deutschland)
+- **Projekt:** Multi-Drone Control System mit Kotlin und MAVSDK
+- **Weitere Arbeiten:** Space Weather Analysis, LLM Operations (2x H100)
 
 ---
 
 *Erstellt: November 2025*
-*Setup getestet mit: PX4 v1.14.3, MAVSDK v1.4.11, Docker Desktop 4.x*
+*Letzte Aktualisierung: Session mit Claude*

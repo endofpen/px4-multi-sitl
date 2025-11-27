@@ -1,77 +1,113 @@
 # =============================================================================
 # Dockerfile für PX4 Multi-Drone SITL Simulation
 # =============================================================================
-#
-# Dieses Dockerfile erweitert das jonasvautherin/px4-gazebo-headless Image
-# um Multi-Drone Unterstützung mit konfigurierbaren MAV_SYS_IDs und Ports.
-#
-# Basis-Image: jonasvautherin/px4-gazebo-headless:1.14.3
-#   - Enthält PX4 Autopilot Firmware (SITL Build)
-#   - Enthält Gazebo Classic Simulator
-#   - Konfiguriert für headless Betrieb (kein GUI)
-#
-# Änderungen gegenüber dem Basis-Image:
-#   - Eigenes entrypoint.sh für Multi-Drone Konfiguration
-#   - Unterstützung für MAV_SYS_ID Umgebungsvariable
-#   - Unterstützung für MAVSDK_REMOTE_PORT Umgebungsvariable
-#   - IPv4-erzwungene Host-Kommunikation (vermeidet IPv6-Probleme auf Mac)
-#
+# Basierend auf andrekuros/px4-sitl-headless-flex
+# Baut PX4 von Grund auf für maximale Flexibilität
 # =============================================================================
 
-# -----------------------------------------------------------------------------
-# Basis-Image
-# -----------------------------------------------------------------------------
-# Version 1.14.3 gewählt für Stabilität und Kompatibilität
-# Neuere Versionen können andere Verzeichnisstrukturen haben!
-FROM jonasvautherin/px4-gazebo-headless:1.14.3
+FROM ubuntu:18.04
 
 # -----------------------------------------------------------------------------
-# Eigenes Entrypoint-Script
+# Umgebungsvariablen
 # -----------------------------------------------------------------------------
-# Ersetzt das Original-Entrypoint um folgende Funktionen hinzuzufügen:
-#   - MAV_SYS_ID Konfiguration (für Multi-Drone)
-#   - MAVSDK_REMOTE_PORT Konfiguration (für Port-Isolation)
-#   - IPv4-erzwungene Host-IP Ermittlung
-#   - MAVLink Target-IP Konfiguration
+ENV WORKSPACE_DIR /root
+ENV FIRMWARE_DIR ${WORKSPACE_DIR}/Firmware
+ENV SITL_RTSP_PROXY ${WORKSPACE_DIR}/sitl_rtsp_proxy
+
+ENV DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true
+ENV DISPLAY :99
+ENV LANG C.UTF-8
+
+# -----------------------------------------------------------------------------
+# System-Abhängigkeiten installieren
+# -----------------------------------------------------------------------------
+RUN apt-get update && \
+    apt-get install -y bc \
+                       cmake \
+                       curl \
+                       gazebo9 \
+                       git \
+                       gstreamer1.0-plugins-bad \
+                       gstreamer1.0-plugins-base \
+                       gstreamer1.0-plugins-good \
+                       gstreamer1.0-plugins-ugly \
+                       iproute2 \
+                       libeigen3-dev \
+                       libgazebo9-dev \
+                       libgstreamer-plugins-base1.0-dev \
+                       libgstrtspserver-1.0-dev \
+                       libopencv-dev \
+                       libroscpp-dev \
+                       protobuf-compiler \
+                       python3-jsonschema \
+                       python3-numpy \
+                       python3-pip \
+                       unzip \
+                       net-tools \
+                       xvfb && \
+    apt-get -y autoremove && \
+    apt-get clean autoclean && \
+    rm -rf /var/lib/apt/lists/{apt,dpkg,cache,log} /tmp/* /var/tmp/*
+
+# -----------------------------------------------------------------------------
+# Python-Abhängigkeiten
+# -----------------------------------------------------------------------------
+RUN pip3 install empy==3.3.4 \
+                 jinja2 \
+                 packaging \
+                 pyros-genmsg \
+                 toml \
+                 pyyaml \
+                 kconfiglib \
+                 future
+
+# -----------------------------------------------------------------------------
+# PX4 Autopilot klonen und bauen
+# -----------------------------------------------------------------------------
+# Verwendet v1.14.3 für Stabilität (kann auf master geändert werden)
+RUN git clone https://github.com/PX4/PX4-Autopilot.git ${FIRMWARE_DIR}
+RUN git -C ${FIRMWARE_DIR} checkout v1.14.3
+RUN git -C ${FIRMWARE_DIR} submodule update --init --recursive
+
+# -----------------------------------------------------------------------------
+# Konfigurationsskripte kopieren
+# -----------------------------------------------------------------------------
+COPY edit_rcS.bash ${WORKSPACE_DIR}
 COPY entrypoint.sh /root/entrypoint.sh
 RUN chmod +x /root/entrypoint.sh
+RUN chmod +x ${WORKSPACE_DIR}/edit_rcS.bash
 
 # -----------------------------------------------------------------------------
-# Standard-Umgebungsvariablen
+# PX4 SITL vorbauen (beschleunigt Container-Start)
 # -----------------------------------------------------------------------------
-# Diese können beim Container-Start überschrieben werden via:
-#   docker run -e MAV_SYS_ID=2 ...
-#   oder in docker-compose.yml unter 'environment:'
+RUN ["/bin/bash", "-c", " \
+    cd ${FIRMWARE_DIR} && \
+    DONT_RUN=1 make px4_sitl gazebo && \
+    DONT_RUN=1 make px4_sitl gazebo \
+"]
 
-# MAV_SYS_ID: Eindeutige MAVLink System-ID (1-255)
-# WICHTIG: Muss für jede Drohne unterschiedlich sein!
-# Bei echten Drohnen wird dieser Parameter in der Firmware gesetzt.
+# -----------------------------------------------------------------------------
+# RTSP Proxy für Video-Streaming
+# -----------------------------------------------------------------------------
+COPY sitl_rtsp_proxy ${SITL_RTSP_PROXY}
+RUN cmake -B${SITL_RTSP_PROXY}/build -H${SITL_RTSP_PROXY}
+RUN cmake --build ${SITL_RTSP_PROXY}/build
+
+# -----------------------------------------------------------------------------
+# Standard-Umgebungsvariablen (können in docker-compose überschrieben werden)
+# -----------------------------------------------------------------------------
 ENV MAV_SYS_ID=1
+ENV SIM_SPEED=1
+ENV VEHICLE=iris
+ENV WORLD=empty
+ENV API_IP=127.0.0.1
+ENV API_PORT=14540
+ENV GCS_IP=127.0.0.1
+ENV GCS_PORT=14550
+ENV PX4_PARAMS=""
 
-# MAVSDK_REMOTE_PORT: UDP-Port an den MAVLink-Pakete gesendet werden
-# Jede Drohne braucht einen eigenen Port um Konflikte zu vermeiden.
-# Der MAVSDK-Server lauscht dann auf diesem Port.
-ENV MAVSDK_REMOTE_PORT=14540
-
-# PX4_HOME_*: Simulierte GPS-Startposition
-# Wird von PX4 SITL für die initiale Position verwendet.
-# Alle Drohnen sollten leicht unterschiedliche Positionen haben,
-# um Kollisionen in der Simulation zu vermeiden.
 ENV PX4_HOME_LAT=51.2330
 ENV PX4_HOME_LON=6.7833
 ENV PX4_HOME_ALT=38.0
 
-# -----------------------------------------------------------------------------
-# Entrypoint
-# -----------------------------------------------------------------------------
-# Startet unser angepasstes Script statt dem Original
 ENTRYPOINT ["/root/entrypoint.sh"]
-
-# -----------------------------------------------------------------------------
-# Build-Informationen
-# -----------------------------------------------------------------------------
-# Build mit: docker build -t px4-multi-sitl .
-# Oder via: docker-compose build
-#
-# Das Image ist ca. 3-4 GB groß (PX4 + Gazebo + Dependencies)
-# -----------------------------------------------------------------------------

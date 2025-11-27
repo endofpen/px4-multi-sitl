@@ -1,104 +1,155 @@
 #!/bin/bash
-
 # =============================================================================
-# entrypoint.sh - Multi-Drone PX4 SITL (basierend auf andrekuros Ansatz)
+# entrypoint.sh - Multi-Drone PX4 SITL Startskript
+# =============================================================================
+# Basierend auf andrekuros/px4-sitl-headless-flex
+# Angepasst für Verwendung mit docker-compose und Umgebungsvariablen
+#
+# Unterstützte Umgebungsvariablen:
+#   MAV_SYS_ID    - MAVLink System ID (1-255)
+#   SIM_SPEED     - Simulationsgeschwindigkeit (1 = Echtzeit)
+#   VEHICLE       - Fahrzeugtyp (iris, typhoon_h480, plane, etc.)
+#   WORLD         - Gazebo-Welt (empty, baylands, etc.)
+#   API_IP        - IP für MAVSDK/API Verbindung
+#   API_PORT      - Port für MAVSDK/API (14540, 14541, ...)
+#   GCS_IP        - IP für QGroundControl
+#   GCS_PORT      - Port für QGroundControl (14550, 14551, ...)
+#   PX4_PARAMS    - Zusätzliche PX4-Parameter (kommasepariert)
+#   PX4_HOME_LAT  - Startposition Breitengrad
+#   PX4_HOME_LON  - Startposition Längengrad
+#   PX4_HOME_ALT  - Startposition Höhe
 # =============================================================================
 
 function show_help {
     echo ""
-    echo "Usage: ${0} [-h | -veh VEHICLE | -world WORLD | -sysid SYSID |"
-    echo "    -aip IP_API | -aport PORT_API | -gip IP_GCS | -gport PORT_GCS]"
+    echo "PX4 Multi-Drone SITL Container"
+    echo ""
+    echo "Umgebungsvariablen:"
+    echo "  MAV_SYS_ID    MAVLink System ID (default: 1)"
+    echo "  SIM_SPEED     Simulationsgeschwindigkeit (default: 1)"
+    echo "  VEHICLE       Fahrzeugtyp (default: iris)"
+    echo "  WORLD         Gazebo-Welt (default: empty)"
+    echo "  API_IP        MAVSDK IP (default: auto-detect)"
+    echo "  API_PORT      MAVSDK Port (default: 14540)"
+    echo "  GCS_IP        QGroundControl IP (default: auto-detect)"
+    echo "  GCS_PORT      QGroundControl Port (default: 14550)"
+    echo "  PX4_PARAMS    Zusätzliche Parameter (z.B. 'MPC_XY_CRUISE 20,MIS_DIST_1WP 3000')"
     echo ""
 }
 
-# Defaults
-vehicle=iris
-world=empty
-SYS_ID=${MAV_SYS_ID:-1}
-IP_API=${API_IP:-127.0.0.1}
-PORT_API=${MAVSDK_REMOTE_PORT:-14540}
-IP_GCS=${GCS_IP:-127.0.0.1}
-PORT_GCS=${GCS_PORT:-14550}
+# -----------------------------------------------------------------------------
+# Konfiguration aus Umgebungsvariablen laden
+# -----------------------------------------------------------------------------
+MAV_SYS_ID=${MAV_SYS_ID:-1}
+SIM_SPEED=${SIM_SPEED:-1}
+VEHICLE=${VEHICLE:-iris}
+WORLD=${WORLD:-empty}
+API_PORT=${API_PORT:-14540}
+GCS_PORT=${GCS_PORT:-14550}
+PX4_PARAMS=${PX4_PARAMS:-""}
 
-# Parse command line arguments
-while [[ "$#" -gt 0 ]]; do
-    case $1 in
-         -help  | --help )   show_help; exit 0;;
-         -veh   | --veh  )   vehicle=$2; shift;;
-         -world | --world)   world=$2; shift;;
-         -sysid | --sysid)   SYS_ID=$2; shift;;
-         -aip   | --aip  )   IP_API=$2; shift;;
-         -aport | --aport)   PORT_API=$2; shift;;
-         -gip   | --gip  )   IP_GCS=$2; shift;;
-         -gport | --gport)   PORT_GCS=$2; shift;;
-         *)
-            # Fallback: erstes Argument als IP (wie Jonas)
-            if [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ $1 == "host.docker.internal" ]]; then
-                IP_API=$1
-                IP_GCS=$1
-            fi
-            ;;
-    esac
-    shift
-done
+# -----------------------------------------------------------------------------
+# Host-IP automatisch erkennen
+# -----------------------------------------------------------------------------
+function get_host_ip {
+    # Versuche zuerst host.docker.internal (Docker Desktop auf Mac/Windows)
+    local ipv4=$(getent ahostsv4 host.docker.internal 2>/dev/null | head -1 | awk '{print $1}')
 
-# Auto-detect host IP if localhost
-if [[ "$IP_API" == "127.0.0.1" ]]; then
-    HOST_IP=$(getent ahostsv4 host.docker.internal 2>/dev/null | head -1 | awk '{print $1}')
-    if [[ -n "$HOST_IP" ]]; then
-        IP_API=$HOST_IP
-        IP_GCS=$HOST_IP
+    if [ -n "$ipv4" ]; then
+        echo "$ipv4"
+    else
+        # Fallback: Default-Gateway (Linux)
+        ip route | awk '/default/ { print $3 }'
     fi
+}
+
+# IP-Adressen setzen (falls nicht explizit angegeben)
+if [ -z "$API_IP" ] || [ "$API_IP" == "127.0.0.1" ]; then
+    API_IP=$(get_host_ip)
 fi
 
+if [ -z "$GCS_IP" ] || [ "$GCS_IP" == "127.0.0.1" ]; then
+    GCS_IP=$(get_host_ip)
+fi
+
+# Fallback falls keine IP gefunden
+API_IP=${API_IP:-127.0.0.1}
+GCS_IP=${GCS_IP:-127.0.0.1}
+
+# -----------------------------------------------------------------------------
+# Startup-Banner
+# -----------------------------------------------------------------------------
 echo "==========================================="
-echo "PX4 SITL Drone"
+echo "PX4 SITL Multi-Drone Container"
 echo "==========================================="
-echo "  MAV_SYS_ID:    ${SYS_ID}"
-echo "  API:           ${IP_API}:${PORT_API}"
-echo "  GCS:           ${IP_GCS}:${PORT_GCS}"
-echo "  Vehicle:       ${vehicle}"
-echo "  World:         ${world}"
+echo "  MAV_SYS_ID:     ${MAV_SYS_ID}"
+echo "  Vehicle:        ${VEHICLE}"
+echo "  World:          ${WORLD}"
+echo "  Sim Speed:      ${SIM_SPEED}x"
+echo "  API:            ${API_IP}:${API_PORT}"
+echo "  GCS:            ${GCS_IP}:${GCS_PORT}"
+echo "  Home Position:  ${PX4_HOME_LAT}, ${PX4_HOME_LON}, ${PX4_HOME_ALT}m"
+if [ -n "$PX4_PARAMS" ]; then
+echo "  Custom Params:  ${PX4_PARAMS}"
+fi
 echo "==========================================="
 
-# Start Xvfb
+# -----------------------------------------------------------------------------
+# Xvfb (Virtual Framebuffer) starten
+# -----------------------------------------------------------------------------
 Xvfb :99 -screen 0 1600x1200x24+32 &
 
-# Start RTSP Proxy
+# -----------------------------------------------------------------------------
+# RTSP Proxy für Video-Streaming starten
+# -----------------------------------------------------------------------------
 ${SITL_RTSP_PROXY}/build/sitl_rtsp_proxy &
 
 # -----------------------------------------------------------------------------
-# MAVLink Konfiguration (wie andrekuros)
+# MAVLink konfigurieren
 # -----------------------------------------------------------------------------
+source ${WORKSPACE_DIR}/edit_rcS.bash ${MAV_SYS_ID} ${GCS_IP} ${API_IP} ${GCS_PORT} ${API_PORT}
 
-CONFIG_FILE=${FIRMWARE_DIR}/build/px4_sitl_default/etc/init.d-posix/rcS
-CONFIG_MAV=${FIRMWARE_DIR}/build/px4_sitl_default/etc/init.d-posix/px4-rc.mavlink
+# -----------------------------------------------------------------------------
+# Zusätzliche PX4-Parameter setzen
+# -----------------------------------------------------------------------------
 CONFIG_PARAMS=${FIRMWARE_DIR}/build/px4_sitl_default/etc/init.d-posix/px4-rc.params
 
-GCS_PARAM="-t ${IP_GCS}"
-API_PARAM="-t ${IP_API}"
+if [ -n "$PX4_PARAMS" ]; then
+    echo ""
+    echo "Setting custom PX4 parameters..."
 
-# GCS Link konfigurieren
-sed -i "s|mavlink start -x -u \$udp_gcs_port_local -r 4000000 -f|mavlink start -x -u \$udp_gcs_port_local -r 4000000 -f ${GCS_PARAM} -o ${PORT_GCS}|" ${CONFIG_MAV}
+    # Parameter sind kommasepariert: "MPC_XY_CRUISE 20,MIS_DIST_1WP 3000"
+    IFS=',' read -ra PARAMS_ARRAY <<< "$PX4_PARAMS"
+    for param in "${PARAMS_ARRAY[@]}"; do
+        # Whitespace trimmen
+        param=$(echo "$param" | xargs)
+        if [ -n "$param" ]; then
+            echo "  param set ${param}"
+            echo "param set ${param}" >> ${CONFIG_PARAMS}
+        fi
+    done
+fi
 
-# API/Offboard Link konfigurieren
-sed -i "s|mavlink start -x -u \$udp_offboard_port_local -r 4000000 -f -m onboard -o \$udp_offboard_port_remote|mavlink start -x -u \$udp_offboard_port_local -r 4000000 -f -m onboard -o ${PORT_API} ${API_PARAM}|" ${CONFIG_MAV}
+# -----------------------------------------------------------------------------
+# Simulationsgeschwindigkeit setzen
+# -----------------------------------------------------------------------------
+export PX4_SIM_SPEED_FACTOR=${SIM_SPEED}
 
-# MAV_SYS_ID ersetzen (nicht hinzufügen!)
-sed -i "s|param set MAV_SYS_ID \$((px4_instance+1))|param set MAV_SYS_ID ${SYS_ID}|" ${CONFIG_FILE}
-
-# WICHTIG: MAVLink 2 Protokoll erzwingen!
-echo "param set MAV_PROTO_VER 2" >> ${CONFIG_PARAMS}
-
-# Verifikation
+# -----------------------------------------------------------------------------
+# Verifikation der Konfiguration
+# -----------------------------------------------------------------------------
 echo ""
-echo "MAVLink Configuration:"
-grep "mavlink start" ${CONFIG_MAV} | head -2
+echo "MAVLink Links:"
+grep "mavlink start" ${FIRMWARE_DIR}/build/px4_sitl_default/etc/init.d-posix/px4-rc.mavlink | head -2
 echo ""
 
 # -----------------------------------------------------------------------------
-# PX4 SITL starten
+# PX4 SITL mit Gazebo starten
 # -----------------------------------------------------------------------------
-
 cd ${FIRMWARE_DIR}
-HEADLESS=1 make px4_sitl gazebo_${vehicle}__${world}
+
+echo "Starting PX4 SITL..."
+echo "  Command: HEADLESS=1 make px4_sitl gazebo_${VEHICLE}__${WORLD}"
+echo ""
+
+HEADLESS=1 make px4_sitl gazebo_${VEHICLE}__${WORLD}

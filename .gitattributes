@@ -1,2 +1,10 @@
-# Shell-Scripts immer mit LF (Unix) Zeilenenden
+# Alle Shell-Scripts mit Unix-Zeilenenden (LF)
 *.sh text eol=lf
+*.bash text eol=lf
+
+# Dockerfile
+Dockerfile text eol=lf
+
+# YAML
+*.yml text eol=lf
+*.yaml text eol=lf
